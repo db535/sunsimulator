@@ -1,27 +1,35 @@
-# PLATEAU × Cesium 日差し・影シミュレーター
+# ShadeRoute PLATEAU - OpenRouteService版
 
-GitHub Pagesに置くだけで動く、PLATEAU実在建物対応版です。
+Google Maps Platformを使わず、OpenRouteService + Cloudflare Workers + GitHub Pages + Cesium + PLATEAUで「日陰優先ルート」を検索するサンプルです。
 
-## 公開方法
+## 構成
 
-1. このZIPを解凍
-2. `index.html`, `style.css`, `app.js`, `README.md` をGitHubリポジトリ直下へ配置
-3. Settings → Pages → Deploy from a branch → main / root
+- `frontend/` : GitHub Pagesに置く静的サイト
+- `worker/` : Cloudflare Workers。ORS APIキーをSecretとして保持
 
-## PLATEAUの使い方
+## 1. OpenRouteService APIキー
 
-### 推奨: PLATEAU配信サービス spec
-画面の「自治体/区コード」「LOD」「テクスチャ」「年度」からURLを自動生成します。
-例: `13101-bldg-maxlod2-latest` → 千代田区の建物を最新年度・最大LOD2で取得。
+1. https://openrouteservice.org/ でアカウント作成
+2. DashboardでAPIキーを作成
 
-### 任意URL
-PLATEAU VIEW/データカタログで取得した `tileset.json` URLを貼り付けて読み込めます。
+## 2. Cloudflare Worker
 
-### Cesium ion Japan 3D Buildings
-Cesium ionのAsset DepotでJapan 3D BuildingsをMy Assetsに追加し、Asset IDとTokenを入力すると利用できます。
+```bash
+cd worker
+npm install
+npx wrangler login
+npx wrangler secret put ORS_API_KEY
+npx wrangler deploy
+```
+
+デプロイ後に出るURLを、フロント画面の「Cloudflare Worker URL」に入力してください。
+
+## 3. GitHub Pages
+
+`frontend/` の中身をGitHub Pages公開用リポジトリへ置いてください。
 
 ## 注意
 
-- PLATEAU配信サービスは試験運用のため、サービス仕様やURLが変更される可能性があります。
-- 影の描画はWebGL可視化目的です。法的な日影規制・建築確認用途には専門の計算エンジンで検証してください。
-- 大規模LOD2/全国データは重いので、最初は自治体単位・maxlod2/lod1がおすすめです。
+- ORSの公開APIには利用制限があります。本格運用では有料プランや自前ホストを検討してください。
+- 日陰判定はCesiumのレイ判定を使うWeb可視化向け近似です。法規判定・安全用途には使わないでください。
+- PLATEAU配信サービスは試験運用のため、安定運用する場合は対象3D Tilesの自前配信も検討してください。

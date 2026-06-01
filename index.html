@@ -3,91 +3,91 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PLATEAU × Cesium 日差し・影シミュレーター</title>
+  <title>ShadeRoute PLATEAU ORS - 日陰優先ルート検索</title>
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.141/Build/Cesium/Cesium.js"></script>
   <link href="https://cesium.com/downloads/cesiumjs/releases/1.141/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
   <div id="cesiumContainer"></div>
-
   <aside class="panel" id="panel">
     <header class="panel__header">
-      <div>
-        <div class="eyebrow">PLATEAU Sunlight Lab</div>
-        <h1>実在建物 日差し・影シミュレーター</h1>
-      </div>
-      <button id="togglePanel" class="iconBtn" title="パネルを折りたたむ">▾</button>
+      <div><div class="eyebrow">ShadeRoute × PLATEAU × OpenRouteService</div><h1>日陰優先ルート検索</h1></div>
+      <button id="togglePanel" class="iconBtn" title="折りたたむ">▾</button>
     </header>
 
     <section class="card statusCard">
       <div class="sunIcon">☀️</div>
-      <div>
-        <div id="clockLabel" class="clockLabel">--</div>
-        <div id="sunLabel" class="subtle">太陽高度 --° / 方位 --°</div>
-      </div>
+      <div><div id="clockLabel" class="clockLabel">--</div><div id="sunLabel" class="subtle">太陽高度 --° / 方位 --°</div></div>
+    </section>
+
+    <section class="card">
+      <h2>1. API接続</h2>
+      <label>Cloudflare Worker URL
+        <input id="workerUrl" placeholder="https://shade-route-ors.yourname.workers.dev" />
+      </label>
+      <div class="buttonRow"><button id="saveWorkerBtn">保存</button><button id="healthBtn">接続テスト</button></div>
+      <p id="healthText" class="hint">OpenRouteService APIキーはCloudflare WorkerのSecretに保存します。</p>
     </section>
 
     <section class="card grid2">
-      <label>日付<input id="dateInput" type="date" /></label>
-      <label>時刻<input id="timeInput" type="time" step="60" /></label>
-      <label>緯度<input id="latInput" type="number" step="0.0001" /></label>
-      <label>経度<input id="lonInput" type="number" step="0.0001" /></label>
-    </section>
-
-    <section class="card">
-      <label>1日シミュレーション <span id="timeSliderLabel" class="valuePill">--:--</span>
-        <input id="timeSlider" type="range" min="0" max="1439" value="720" />
-      </label>
-      <div class="buttonRow">
-        <button id="playBtn" class="primary">▶ 再生</button><button id="nowBtn">現在時刻</button><button id="flyBtn">移動</button>
-      </div>
-      <div class="buttonRow"><button data-preset="summer">夏至</button><button data-preset="winter">冬至</button><button data-preset="equinox">春分/秋分</button></div>
-    </section>
-
-    <section class="card">
-      <h2>実在建物データ</h2>
-      <label>建物ソース
-        <select id="buildingSource">
-          <option value="plateauSpec" selected>PLATEAU配信サービス spec</option>
-          <option value="plateauUrl">PLATEAU / 任意 3D Tiles URL</option>
-          <option value="ionJapan">Cesium ion Japan 3D Buildings</option>
-          <option value="procedural">デモ箱建物</option>
+      <label>出発地<input id="originInput" placeholder="例: 東京駅 / 35.681236,139.767125" /></label>
+      <label>目的地<input id="destinationInput" placeholder="例: 新宿御苑 / 35.685176,139.710052" /></label>
+      <label>移動手段
+        <select id="travelMode">
+          <option value="foot-walking">徒歩</option>
+          <option value="cycling-regular">自転車</option>
+          <option value="driving-car">車</option>
+          <option value="wheelchair">車椅子</option>
         </select>
       </label>
-      <div id="plateauSpecBox" class="miniGrid">
+      <label>優先度
+        <select id="routeMode">
+          <option value="balanced">バランス</option>
+          <option value="shade">日陰優先</option>
+          <option value="shortest">最短優先</option>
+        </select>
+      </label>
+      <label>日付<input id="dateInput" type="date" /></label>
+      <label>時刻<input id="timeInput" type="time" step="60" /></label>
+    </section>
+
+    <section class="card">
+      <div class="buttonRow">
+        <button id="useHereBtn">現在地を出発地</button>
+        <button id="searchBtn" class="primary">日陰ルート検索</button>
+      </div>
+      <p class="hint">ORSで候補ルートを取得し、Cesium + PLATEAU建物に対して太陽方向レイを飛ばして日陰率を推定します。</p>
+    </section>
+
+    <section class="card">
+      <h2>2. PLATEAU建物</h2>
+      <div class="miniGrid">
         <label>自治体/区コード<input id="cityCodeInput" value="13101" /></label>
         <label>LOD<select id="lodInput"><option value="lod1">LOD1 軽量</option><option value="maxlod2" selected>最大LOD2</option><option value="lod2">LOD2限定</option></select></label>
         <label>テクスチャ<select id="textureInput"><option value="">自動</option><option value="texture">texture</option><option value="notexture">notexture</option></select></label>
         <label>年度<input id="yearInput" value="latest" /></label>
       </div>
-      <label id="plateauUrlBox">3D Tiles tileset.json URL
-        <input id="tilesetUrlInput" value="https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13101-bldg-lod2-latest/tileset.json" />
-      </label>
-      <label id="ionAssetBox">Cesium ion Asset ID<input id="ionAssetInput" value="" placeholder="Asset DepotでJapan 3D BuildingsをMy Assetsへ追加後のID" /></label>
-      <div class="buttonRow"><button id="loadBuildingsBtn" class="primary">建物を読み込み</button><button id="clearBuildingsBtn">建物を消去</button></div>
-      <p id="tilesetStatus" class="hint">PLATEAU配信サービスの -latest URLなら、公開データ更新に追従しやすい構成です。</p>
+      <div class="buttonRow"><button id="loadPlateauBtn">PLATEAU読込</button><button id="loadOrthoBtn">PLATEAU Ortho</button></div>
+      <p id="plateauStatus" class="hint">対象エリアの自治体コードを指定してください。例: 千代田区 13101、渋谷区 13113。</p>
     </section>
 
-    <section class="card grid2">
-      <label>影の濃さ<input id="shadowDarkness" type="range" min="0.1" max="0.95" step="0.05" value="0.45" /></label>
-      <label>影品質<select id="shadowSize"><option value="1024">標準</option><option value="2048" selected>高</option><option value="4096">極高</option></select></label>
-      <label class="check"><input id="softShadows" type="checkbox" checked /> ソフトシャドウ</label>
-      <label class="check"><input id="showSunPath" type="checkbox" checked /> 太陽軌道</label>
-      <label class="check"><input id="showGrid" type="checkbox" checked /> 分析グリッド</label>
-      <label class="check"><input id="usePlateauOrtho" type="checkbox" /> PLATEAU Ortho</label>
-      <label class="check"><input id="useTerrain" type="checkbox" /> PLATEAU Terrain / ion地形</label>
+    <section class="card options">
+      <h2>3. 解析設定</h2>
+      <div class="grid2">
+        <label>サンプル間隔(m)<input id="sampleStep" type="number" value="18" min="5" max="80" /></label>
+        <label>最大サンプル数<input id="maxSamples" type="number" value="260" min="50" max="800" /></label>
+      </div>
+      <p class="hint">数値を小さくすると精度は上がりますが重くなります。スマホなら18〜30m推奨。</p>
     </section>
 
     <section class="card">
-      <label>Cesium ion Token（Japan 3D Buildings / Terrain用）<input id="tokenInput" type="password" placeholder="Tokenを入力" /></label>
-      <div class="buttonRow"><button id="saveTokenBtn">Token保存</button><button id="clearTokenBtn">削除</button></div>
+      <h2>4. 結果</h2>
+      <div id="results" class="results"></div>
     </section>
-
-    <section class="card metrics"><h2>日照サンプル</h2><div><span>午前</span><meter id="meterAm" min="0" max="1" value="0"></meter></div><div><span>午後</span><meter id="meterPm" min="0" max="1" value="0"></meter></div><p class="hint">影表示はWeb可視化用です。法規判定には検証済み計算が必要です。</p></section>
   </aside>
 
-  <div class="legend"><span><b class="b sun"></b>太陽軌道</span><span><b class="b grid"></b>分析点</span><span><b class="b shadow"></b>PLATEAU建物の影</span></div>
+  <div class="legend"><span><b class="b best"></b>おすすめ</span><span><b class="b alt"></b>候補</span><span><b class="b sun"></b>日なた</span><span><b class="b shade"></b>日陰</span></div>
   <div id="toast" class="toast"></div>
   <script src="./app.js"></script>
 </body>
