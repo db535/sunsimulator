@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ShadeRoute PLATEAU ORS Terrain Fixed</title>
+  <title>ShadeRoute PLATEAU ORS - Japan Regional Terrain</title>
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.141/Build/Cesium/Cesium.js"></script>
   <link href="https://cesium.com/downloads/cesiumjs/releases/1.141/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
   <link rel="stylesheet" href="./style.css" />
@@ -104,24 +104,38 @@
 
     <section class="card">
       <h2>3. 地形 / 接地補正</h2>
-      <label>Cesium ion Token（PLATEAU Terrain / Japan Regional Terrain用）
+      <label>Cesium ion Token（Japan Regional Terrain用）
         <input id="cesiumToken" type="password" placeholder="Cesium ion token" />
       </label>
       <div class="miniGrid">
-        <label>Terrain Asset ID<input id="terrainAssetId" value="2488101" /></label>
+        <label>Terrain Asset ID<input id="terrainAssetId" value="2767062" /></label>
         <label>地形モード
           <select id="terrainMode">
             <option value="ellipsoid">地形なし</option>
-            <option value="ion">PLATEAU Terrain / ion</option>
+            <option value="ion" selected>Japan Regional Terrain / ion</option>
+          </select>
+        </label>
+      </div>
+      <div class="miniGrid">
+        <label>建物高さ補正(m)<input id="heightOffsetInput" type="number" value="0" step="1" /></label>
+        <label>補正プリセット
+          <select id="heightPreset">
+            <option value="0">0m</option>
+            <option value="-5">-5m</option>
+            <option value="-10">-10m</option>
+            <option value="-20">-20m</option>
+            <option value="5">+5m</option>
+            <option value="10">+10m</option>
           </select>
         </label>
       </div>
       <div class="buttonRow">
         <button id="saveCesiumTokenBtn">Token保存</button>
-        <button id="applyTerrainBtn" class="primary">地形を適用</button>
+        <button id="applyTerrainBtn" class="primary">Terrain適用</button>
         <button id="clearTerrainBtn">地形OFF</button>
+        <button id="applyOffsetBtn">高さ補正を適用</button>
       </div>
-      <p id="terrainStatus" class="hint">建物が浮く場合は、Tokenを入れてPLATEAU Terrainを適用してください。</p>
+      <p id="terrainStatus" class="hint">Asset ID 2767062 を初期値にしています。Terrain適用時はPLATEAU Orthoも自動ONになります。</p>
     </section>
 
     <section class="card">

@@ -1,186 +1,25 @@
-const $ = (id) => document.getElementById(id);
-const state = { tileset:null, orthoLayer:null, routeEntities:[], date:new Date(), origin:null, destination:null, lastRoutes:[] };
-
-const savedWorker = localStorage.getItem('SHADE_ORS_WORKER_URL') || '';
-$('workerUrl').value = savedWorker;
-const savedCesiumToken = localStorage.getItem('CESIUM_ION_TOKEN') || '';
-
-const viewer = new Cesium.Viewer('cesiumContainer', {
-  animation:false, timeline:false, baseLayerPicker:true, geocoder:true,
-  homeButton:false, sceneModePicker:false, navigationHelpButton:false,
-  infoBox:false, selectionIndicator:false, shadows:false, shouldAnimate:false
-});
-
-viewer.scene.globe.enableLighting = false;
-viewer.scene.shadowMap.enabled = false;
-viewer.scene.globe.baseColor = Cesium.Color.WHITE;
-viewer.scene.globe.depthTestAgainstTerrain = true;
-viewer.scene.sun.show = true;
-viewer.scene.moon.show = true;
-
-if (savedCesiumToken) {
-  $('cesiumToken').value = savedCesiumToken;
-  Cesium.Ion.defaultAccessToken = savedCesiumToken;
-}
-
-function pad(n){ return String(n).padStart(2,'0'); }
-function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2600); }
-function ymd(d){ return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
-
-function dateFromInputs(){
-  const dateValue = $('dateInput').value;
-  const timeValue = $('timeInput').value;
-  const base = (state.date instanceof Date && !Number.isNaN(state.date.getTime())) ? state.date : new Date();
-
-  let y = base.getFullYear(), m = base.getMonth()+1, d = base.getDate();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
-    const parts = dateValue.split('-').map(Number);
-    y = parts[0]; m = parts[1]; d = parts[2];
-  }
-
-  let hh = base.getHours(), mm = base.getMinutes();
-  if (/^\d{1,2}:\d{2}$/.test(timeValue)) {
-    const parts = timeValue.split(':').map(Number);
-    if (Number.isFinite(parts[0]) && Number.isFinite(parts[1]) && parts[0] >= 0 && parts[0] <= 23 && parts[1] >= 0 && parts[1] <= 59) {
-      hh = parts[0]; mm = parts[1];
-    }
-  }
-  return new Date(y, m-1, d, hh, mm, 0);
-}
-
-function setDate(d, options={}){
-  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return;
-  state.date = d;
-  $('dateInput').value = ymd(d);
-  if (!options.keepTimeInput) $('timeInput').value = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  viewer.clock.currentTime = Cesium.JulianDate.fromDate(d);
-  updateSunReadout();
-}
-
-function sunPosition(date, latDeg, lonDeg){
-  const rad=Math.PI/180, deg=180/Math.PI;
-  const start=new Date(date.getFullYear(),0,0);
-  const day=Math.floor((date-start)/86400000);
-  const hour=date.getHours()+date.getMinutes()/60;
-  const gamma=2*Math.PI/365*(day-1+(hour-12)/24);
-  const decl=.006918-.399912*Math.cos(gamma)+.070257*Math.sin(gamma)-.006758*Math.cos(2*gamma)+.000907*Math.sin(2*gamma)-.002697*Math.cos(3*gamma)+.00148*Math.sin(3*gamma);
-  const eq=229.18*(.000075+.001868*Math.cos(gamma)-.032077*Math.sin(gamma)-.014615*Math.cos(2*gamma)-.040849*Math.sin(2*gamma));
-  const tz=-date.getTimezoneOffset()/60;
-  const tst=hour*60+eq+4*lonDeg-60*tz;
-  const ha=(tst/4-180)*rad;
-  const lat=latDeg*rad;
-  const cosZen=Math.sin(lat)*Math.sin(decl)+Math.cos(lat)*Math.cos(decl)*Math.cos(ha);
-  const zen=Math.acos(Math.min(1,Math.max(-1,cosZen)));
-  const elev=90-zen*deg;
-  let az=Math.atan2(Math.sin(ha),Math.cos(ha)*Math.sin(lat)-Math.tan(decl)*Math.cos(lat))*deg+180;
-  return { elevation:elev, azimuth:(az+360)%360 };
-}
-
-function updateSunReadout(){
-  const ll = state.origin || {lat:35.684, lng:139.753};
-  const p = sunPosition(state.date, ll.lat, ll.lng);
-  $('clockLabel').textContent = state.date.toLocaleString('ja-JP', {dateStyle:'medium', timeStyle:'short'});
-  $('sunLabel').textContent = `太陽高度 ${p.elevation.toFixed(1)}° / 方位 ${p.azimuth.toFixed(1)}°`;
-}
-
-function buildPlateauUrl(){
-  const city=$('cityCodeInput').value.trim();
-  const lod=$('lodInput').value;
-  const tex=$('textureInput').value;
-  const year=$('yearInput').value.trim() || 'latest';
-  return `https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/${city}-bldg-${lod}${tex?'-'+tex:''}-${year}/tileset.json`;
-}
-
-async function loadPlateau(){
-  try{
-    if(state.tileset) viewer.scene.primitives.remove(state.tileset);
-    $('plateauStatus').textContent='PLATEAU読み込み中...';
-    const tileset = await Cesium.Cesium3DTileset.fromUrl(buildPlateauUrl(), { maximumScreenSpaceError:2, dynamicScreenSpaceError:true, dynamicScreenSpaceErrorDensity:2e-4, dynamicScreenSpaceErrorFactor:24 });
-    tileset.shadows = Cesium.ShadowMode.DISABLED;
-    state.tileset = viewer.scene.primitives.add(tileset);
-    $('plateauStatus').textContent='読込完了: '+buildPlateauUrl();
-    toast('PLATEAU建物を読み込みました');
-  }catch(e){ console.error(e); $('plateauStatus').textContent='PLATEAU読込失敗: '+e.message; toast('PLATEAU読込失敗'); }
-}
-
-function ensureOrtho(){
-  if(state.orthoLayer) return;
-  const provider = new Cesium.UrlTemplateImageryProvider({ url:'https://tile.plateauview.mlit.go.jp/tiles/plateau-ortho-2023/{z}/{x}/{y}.png', maximumLevel:19 });
-  state.orthoLayer = viewer.imageryLayers.addImageryProvider(provider);
-}
-function toggleOrtho(){
-  if(state.orthoLayer){ viewer.imageryLayers.remove(state.orthoLayer); state.orthoLayer=null; toast('PLATEAU Ortho OFF'); return; }
-  ensureOrtho(); toast('PLATEAU Ortho ON');
-}
-
-async function applyTerrain(){
-  try{
-    if($('terrainMode').value === 'ellipsoid'){ clearTerrain(); return; }
-    const token=$('cesiumToken').value.trim();
-    const assetId=Number($('terrainAssetId').value.trim() || '2488101');
-    if(!token){ toast('Cesium ion Tokenを入力してください'); $('terrainStatus').textContent='Token未入力です'; return; }
-    Cesium.Ion.defaultAccessToken = token;
-    localStorage.setItem('CESIUM_ION_TOKEN', token);
-    $('terrainStatus').textContent='地形を読み込み中...';
-
-    const terrainProvider = await Cesium.CesiumTerrainProvider.fromIonAssetId(assetId);
-    viewer.scene.terrainProvider = terrainProvider;
-    viewer.scene.globe.enableLighting = false;
-    viewer.scene.shadowMap.enabled = false;
-    viewer.scene.globe.baseColor = Cesium.Color.WHITE;
-    viewer.scene.globe.depthTestAgainstTerrain = true;
-    ensureOrtho();
-
-    $('terrainStatus').textContent='地形ON: Asset ID '+assetId;
-    toast('地形を適用しました');
-  }catch(e){ console.error(e); $('terrainStatus').textContent='地形適用失敗: '+e.message; toast('地形適用に失敗しました'); }
-}
-
-function clearTerrain(){
-  viewer.scene.terrainProvider = new Cesium.EllipsoidTerrainProvider();
-  viewer.scene.globe.enableLighting = false;
-  viewer.scene.shadowMap.enabled = false;
-  viewer.scene.globe.baseColor = Cesium.Color.WHITE;
-  $('terrainMode').value='ellipsoid';
-  $('terrainStatus').textContent='地形OFF: 建物が浮く場合があります。';
-  toast('地形OFF');
-}
-function saveCesiumToken(){
-  const token=$('cesiumToken').value.trim();
-  if(!token){ toast('Tokenが空です'); return; }
-  localStorage.setItem('CESIUM_ION_TOKEN', token);
-  Cesium.Ion.defaultAccessToken = token;
-  toast('Cesium ion Tokenを保存しました');
-}
-
-function hav(a,b){ const R=6371000,rad=Math.PI/180; const dlat=(b.lat-a.lat)*rad, dlng=(b.lng-a.lng)*rad; const s=Math.sin(dlat/2)**2+Math.cos(a.lat*rad)*Math.cos(b.lat*rad)*Math.sin(dlng/2)**2; return 2*R*Math.asin(Math.sqrt(s)); }
-function interpolateRoute(points, step=18){ const out=[]; for(let i=0;i<points.length-1;i++){ const a=points[i],b=points[i+1],d=hav(a,b),n=Math.max(1,Math.ceil(d/step)); for(let j=0;j<n;j++){ const t=j/n; out.push({lat:a.lat+(b.lat-a.lat)*t,lng:a.lng+(b.lng-a.lng)*t}); } } out.push(points[points.length-1]); return out; }
-function sunDirectionCartesian(point,date){ const p=sunPosition(date,point.lat,point.lng); if(p.elevation<=0)return null; const az=Cesium.Math.toRadians(p.azimuth),el=Cesium.Math.toRadians(p.elevation); const east=Math.sin(az)*Math.cos(el),north=Math.cos(az)*Math.cos(el),up=Math.sin(el); const origin=Cesium.Cartesian3.fromDegrees(point.lng,point.lat,1.7); const enu=Cesium.Transforms.eastNorthUpToFixedFrame(origin); const dir=Cesium.Matrix4.multiplyByPointAsVector(enu,new Cesium.Cartesian3(east,north,up),new Cesium.Cartesian3()); return Cesium.Cartesian3.normalize(dir,dir); }
-async function isShaded(point){ const dir=sunDirectionCartesian(point,state.date); if(!dir)return true; const origin=Cesium.Cartesian3.fromDegrees(point.lng,point.lat,1.7),ray=new Cesium.Ray(origin,dir); try{ let hit; if(viewer.scene.pickFromRayMostDetailed) hit=await viewer.scene.pickFromRayMostDetailed(ray,state.routeEntities); else if(viewer.scene.pickFromRay) hit=viewer.scene.pickFromRay(ray,state.routeEntities); return !!(hit&&hit.position&&Cesium.Cartesian3.distance(origin,hit.position)>1); }catch(e){ return false; } }
-async function analyzeRoute(route,idx){ const raw=route.coordinates.map(c=>({lng:c[0],lat:c[1]})); const step=Math.max(5,Number($('sampleStep').value)||18); const maxSamples=Math.max(50,Number($('maxSamples').value)||260); const samples=interpolateRoute(raw,step).slice(0,maxSamples); let shaded=0; const flags=[]; for(let i=0;i<samples.length;i++){ const sh=await isShaded(samples[i]); flags.push(sh); if(sh)shaded++; if(i%25===0)await new Promise(r=>setTimeout(r,0)); } return {idx,raw,samples,flags,shadeRatio:samples.length?shaded/samples.length:0,distance:route.distance||0,duration:route.duration||0}; }
-function clearRoutes(){ state.routeEntities.forEach(e=>viewer.entities.remove(e)); state.routeEntities=[]; $('results').innerHTML=''; }
-function drawAnalyzed(routes){ clearRoutes(); const minDist=Math.min(...routes.map(r=>r.distance)); const minDur=Math.min(...routes.map(r=>r.duration)); const mode=$('routeMode').value; routes.forEach(r=>{ const detour=(r.distance-minDist)/Math.max(minDist,1); const delay=(r.duration-minDur)/Math.max(minDur,1); r.score=mode==='shade'?r.shadeRatio*.78-detour*.16-delay*.06:mode==='shortest'?r.shadeRatio*.25-detour*.55-delay*.20:r.shadeRatio*.60-detour*.28-delay*.12; }); routes.sort((a,b)=>b.score-a.score); state.lastRoutes=routes; routes.forEach((r,rank)=>{ const color=rank===0?Cesium.Color.LIME:Cesium.Color.DEEPSKYBLUE.withAlpha(.7); state.routeEntities.push(viewer.entities.add({polyline:{positions:Cesium.Cartesian3.fromDegreesArray(r.raw.flatMap(p=>[p.lng,p.lat])),width:rank===0?7:4,material:color,clampToGround:true}})); for(let i=0;i<r.samples.length-1;i+=4){ const seg=[r.samples[i],r.samples[Math.min(i+3,r.samples.length-1)]]; state.routeEntities.push(viewer.entities.add({polyline:{positions:Cesium.Cartesian3.fromDegreesArray(seg.flatMap(p=>[p.lng,p.lat])),width:rank===0?5:3,material:r.flags[i]?Cesium.Color.fromCssColorString('#0ea5e9').withAlpha(.9):Cesium.Color.fromCssColorString('#ef4444').withAlpha(.75),clampToGround:true}})); } }); viewer.flyTo(state.routeEntities,{duration:1}); renderResults(routes); }
-function externalMapUrl(route,kind){ const o=state.origin,d=state.destination; if(kind==='osm')return `https://www.openstreetmap.org/directions?engine=fossgis_osrm_foot&route=${o.lat}%2C${o.lng}%3B${d.lat}%2C${d.lng}`; if(kind==='apple')return `https://maps.apple.com/?saddr=${o.lat},${o.lng}&daddr=${d.lat},${d.lng}&dirflg=w`; const p=new URLSearchParams({api:'1',origin:`${o.lat},${o.lng}`,destination:`${d.lat},${d.lng}`,travelmode:$('travelMode').value.includes('cycling')?'bicycling':$('travelMode').value.includes('driving')?'driving':'walking'}); return 'https://www.google.com/maps/dir/?'+p.toString(); }
-function renderResults(routes){ const el=$('results'); el.innerHTML=''; routes.forEach((r,i)=>{ const div=document.createElement('div'); div.className='result'; div.innerHTML=`<strong>${i===0?'🥇 おすすめ日陰ルート':'候補ルート '+(i+1)}</strong><div class="score"><span class="pill">日陰率 ${(r.shadeRatio*100).toFixed(0)}%</span><span class="pill">距離 ${(r.distance/1000).toFixed(2)}km</span><span class="pill">時間 ${Math.round(r.duration/60)}分</span><span class="pill">Score ${r.score.toFixed(2)}</span></div><div class="buttonRow"><button data-kind="google">Google Maps</button><button data-kind="apple">Apple Maps</button><button data-kind="osm">OSM</button></div>`; div.querySelectorAll('button').forEach(btn=>btn.onclick=()=>window.open(externalMapUrl(r,btn.dataset.kind),'_blank')); el.appendChild(div); }); }
-function parsePoint(s){ s=s.trim(); const m=s.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/); if(m)return {lat:+m[1],lng:+m[2]}; return null; }
-async function geocodeOrPoint(text){ const p=parsePoint(text); if(p)return p; const base=$('workerUrl').value.replace(/\/$/,''); const res=await fetch(base+'/geocode',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text})}); if(!res.ok)throw new Error(await res.text()); return await res.json(); }
-async function searchShadeRoute(){ try{ const base=$('workerUrl').value.replace(/\/$/,''); if(!base)throw new Error('Worker URLを設定してください'); state.date=dateFromInputs(); viewer.clock.currentTime=Cesium.JulianDate.fromDate(state.date); clearRoutes(); $('results').innerHTML='<p class="hint">出発地・目的地を解決中...</p>'; state.origin=await geocodeOrPoint($('originInput').value); state.destination=await geocodeOrPoint($('destinationInput').value); updateSunReadout(); $('results').innerHTML='<p class="hint">OpenRouteServiceで候補ルート取得中...</p>'; const res=await fetch(base+'/routes',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({origin:state.origin,destination:state.destination,profile:$('travelMode').value,alternatives:true})}); if(!res.ok)throw new Error(await res.text()); const data=await res.json(); const routes=(data.routes||[]).filter(r=>r.coordinates?.length).slice(0,3); if(!routes.length)throw new Error('ルートが見つかりません'); const analyzed=[]; for(let i=0;i<routes.length;i++){ $('results').innerHTML=`<p class="hint">日陰判定中 ${i+1}/${routes.length}...</p>`; analyzed.push(await analyzeRoute(routes[i],i)); } drawAnalyzed(analyzed); toast('日陰ルート検索が完了しました'); }catch(e){ console.error(e); $('results').innerHTML='<p class="hint">エラー: '+e.message+'</p>'; toast('ルート検索に失敗しました'); } }
-async function health(){ try{ const base=$('workerUrl').value.replace(/\/$/,''); const r=await fetch(base+'/health'); $('healthText').textContent=await r.text(); }catch(e){ $('healthText').textContent='接続失敗: '+e.message; } }
-
-document.querySelectorAll('[data-area]').forEach(btn=>btn.onclick=()=>{ $('cityCodeInput').value=btn.dataset.area; if(btn.dataset.area==='all')$('lodInput').value='lod1'; toast('範囲コードを '+btn.dataset.area+' にしました'); });
-$('saveWorkerBtn').onclick=()=>{ localStorage.setItem('SHADE_ORS_WORKER_URL',$('workerUrl').value.trim()); toast('Worker URLを保存しました'); };
-$('healthBtn').onclick=health;
-$('searchBtn').onclick=searchShadeRoute;
-$('loadPlateauBtn').onclick=loadPlateau;
-$('loadOrthoBtn').onclick=toggleOrtho;
-$('saveCesiumTokenBtn').onclick=saveCesiumToken;
-$('applyTerrainBtn').onclick=applyTerrain;
-$('clearTerrainBtn').onclick=clearTerrain;
-$('togglePanel').onclick=()=>$('panel').classList.toggle('collapsed');
-$('dateInput').addEventListener('change',()=>setDate(dateFromInputs()));
-$('timeInput').addEventListener('change',()=>{ const v=$('timeInput').value; if(!/^\d{1,2}:\d{2}$/.test(v))return; setDate(dateFromInputs()); });
-$('useHereBtn').onclick=()=>navigator.geolocation.getCurrentPosition(p=>{ $('originInput').value=`${p.coords.latitude.toFixed(6)},${p.coords.longitude.toFixed(6)}`; toast('現在地を出発地に設定しました'); },e=>toast('現在地を取得できません'));
-
-setDate(new Date());
-viewer.camera.setView({destination:Cesium.Cartesian3.fromDegrees(139.753,35.684,5000)});
-loadPlateau();
+const $=(id)=>document.getElementById(id);
+const state={tileset:null,orthoLayer:null,routeEntities:[],date:new Date(),origin:null,destination:null,lastRoutes:[],heightOffset:0};
+const savedWorker=localStorage.getItem('SHADE_ORS_WORKER_URL')||'';$('workerUrl').value=savedWorker;
+const savedCesiumToken=localStorage.getItem('CESIUM_ION_TOKEN')||'';
+const viewer=new Cesium.Viewer('cesiumContainer',{animation:false,timeline:false,baseLayerPicker:true,geocoder:true,homeButton:false,sceneModePicker:false,navigationHelpButton:false,infoBox:false,selectionIndicator:false,shadows:false,shouldAnimate:false});
+viewer.scene.globe.enableLighting=false;viewer.scene.shadowMap.enabled=false;viewer.scene.globe.baseColor=Cesium.Color.WHITE;viewer.scene.globe.depthTestAgainstTerrain=true;viewer.scene.sun.show=true;viewer.scene.moon.show=true;
+if(savedCesiumToken){$('cesiumToken').value=savedCesiumToken;Cesium.Ion.defaultAccessToken=savedCesiumToken}
+function pad(n){return String(n).padStart(2,'0')}function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600)}function ymd(d){return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`}
+function dateFromInputs(){const dateValue=$('dateInput').value,timeValue=$('timeInput').value,base=(state.date instanceof Date&&!Number.isNaN(state.date.getTime()))?state.date:new Date();let y=base.getFullYear(),m=base.getMonth()+1,d=base.getDate();if(/^\d{4}-\d{2}-\d{2}$/.test(dateValue)){const p=dateValue.split('-').map(Number);y=p[0];m=p[1];d=p[2]}let hh=base.getHours(),mm=base.getMinutes();if(/^\d{1,2}:\d{2}$/.test(timeValue)){const p=timeValue.split(':').map(Number);if(Number.isFinite(p[0])&&Number.isFinite(p[1])&&p[0]>=0&&p[0]<=23&&p[1]>=0&&p[1]<=59){hh=p[0];mm=p[1]}}return new Date(y,m-1,d,hh,mm,0)}
+function setDate(d,options={}){if(!(d instanceof Date)||Number.isNaN(d.getTime()))return;state.date=d;$('dateInput').value=ymd(d);if(!options.keepTimeInput)$('timeInput').value=`${pad(d.getHours())}:${pad(d.getMinutes())}`;viewer.clock.currentTime=Cesium.JulianDate.fromDate(d);updateSunReadout()}
+function sunPosition(date,latDeg,lonDeg){const rad=Math.PI/180,deg=180/Math.PI,start=new Date(date.getFullYear(),0,0),day=Math.floor((date-start)/86400000),hour=date.getHours()+date.getMinutes()/60,gamma=2*Math.PI/365*(day-1+(hour-12)/24),decl=.006918-.399912*Math.cos(gamma)+.070257*Math.sin(gamma)-.006758*Math.cos(2*gamma)+.000907*Math.sin(2*gamma)-.002697*Math.cos(3*gamma)+.00148*Math.sin(3*gamma),eq=229.18*(.000075+.001868*Math.cos(gamma)-.032077*Math.sin(gamma)-.014615*Math.cos(2*gamma)-.040849*Math.sin(2*gamma)),tz=-date.getTimezoneOffset()/60,tst=hour*60+eq+4*lonDeg-60*tz,ha=(tst/4-180)*rad,lat=latDeg*rad,cosZen=Math.sin(lat)*Math.sin(decl)+Math.cos(lat)*Math.cos(decl)*Math.cos(ha),zen=Math.acos(Math.min(1,Math.max(-1,cosZen))),elev=90-zen*deg;let az=Math.atan2(Math.sin(ha),Math.cos(ha)*Math.sin(lat)-Math.tan(decl)*Math.cos(lat))*deg+180;return{elevation:elev,azimuth:(az+360)%360}}
+function updateSunReadout(){const ll=state.origin||{lat:35.684,lng:139.753},p=sunPosition(state.date,ll.lat,ll.lng);$('clockLabel').textContent=state.date.toLocaleString('ja-JP',{dateStyle:'medium',timeStyle:'short'});$('sunLabel').textContent=`太陽高度 ${p.elevation.toFixed(1)}° / 方位 ${p.azimuth.toFixed(1)}°`}
+function buildPlateauUrl(){const city=$('cityCodeInput').value.trim(),lod=$('lodInput').value,tex=$('textureInput').value,year=$('yearInput').value.trim()||'latest';return `https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/${city}-bldg-${lod}${tex?'-'+tex:''}-${year}/tileset.json`}
+async function loadPlateau(){try{if(state.tileset)viewer.scene.primitives.remove(state.tileset);$('plateauStatus').textContent='PLATEAU読み込み中...';const tileset=await Cesium.Cesium3DTileset.fromUrl(buildPlateauUrl(),{maximumScreenSpaceError:2,dynamicScreenSpaceError:true,dynamicScreenSpaceErrorDensity:2e-4,dynamicScreenSpaceErrorFactor:24});tileset.shadows=Cesium.ShadowMode.DISABLED;state.tileset=viewer.scene.primitives.add(tileset);applyHeightOffset(false);$('plateauStatus').textContent='読込完了: '+buildPlateauUrl();toast('PLATEAU建物を読み込みました')}catch(e){console.error(e);$('plateauStatus').textContent='PLATEAU読込失敗: '+e.message;toast('PLATEAU読込失敗')}}
+function ensureOrtho(){if(state.orthoLayer)return;const provider=new Cesium.UrlTemplateImageryProvider({url:'https://tile.plateauview.mlit.go.jp/tiles/plateau-ortho-2023/{z}/{x}/{y}.png',maximumLevel:19});state.orthoLayer=viewer.imageryLayers.addImageryProvider(provider)}function toggleOrtho(){if(state.orthoLayer){viewer.imageryLayers.remove(state.orthoLayer);state.orthoLayer=null;toast('PLATEAU Ortho OFF');return}ensureOrtho();toast('PLATEAU Ortho ON')}
+async function applyTerrain(){try{const mode=$('terrainMode').value;if(mode==='ellipsoid'){clearTerrain();return}const token=$('cesiumToken').value.trim(),assetId=Number($('terrainAssetId').value.trim()||'2767062');if(!token){toast('Cesium ion Tokenを入力してください');$('terrainStatus').textContent='Token未入力です';return}Cesium.Ion.defaultAccessToken=token;localStorage.setItem('CESIUM_ION_TOKEN',token);$('terrainStatus').textContent='Japan Regional Terrainを読み込み中...';const terrainProvider=await Cesium.CesiumTerrainProvider.fromIonAssetId(assetId);viewer.scene.terrainProvider=terrainProvider;viewer.scene.globe.enableLighting=false;viewer.scene.shadowMap.enabled=false;viewer.scene.globe.baseColor=Cesium.Color.WHITE;viewer.scene.globe.depthTestAgainstTerrain=true;ensureOrtho();$('terrainStatus').textContent='Japan Regional Terrain ON: Asset ID '+assetId;toast('Terrainを適用しました')}catch(e){console.error(e);$('terrainStatus').textContent='Terrain適用失敗: '+e.message;toast('Terrain適用に失敗しました')}}
+function clearTerrain(){viewer.scene.terrainProvider=new Cesium.EllipsoidTerrainProvider();viewer.scene.globe.enableLighting=false;viewer.scene.shadowMap.enabled=false;viewer.scene.globe.baseColor=Cesium.Color.WHITE;viewer.scene.globe.depthTestAgainstTerrain=false;$('terrainMode').value='ellipsoid';$('terrainStatus').textContent='地形OFF: 建物が浮く場合があります。';toast('地形OFF')}function saveCesiumToken(){const token=$('cesiumToken').value.trim();if(!token){toast('Tokenが空です');return}localStorage.setItem('CESIUM_ION_TOKEN',token);Cesium.Ion.defaultAccessToken=token;toast('Cesium ion Tokenを保存しました')}function applyHeightOffset(showToast=true){const offset=Number($('heightOffsetInput').value||0);state.heightOffset=offset;if(state.tileset){state.tileset.modelMatrix=Cesium.Matrix4.fromTranslation(Cesium.Cartesian3.fromElements(0,0,offset))}$('terrainStatus').textContent=`建物高さ補正: ${offset}m`;if(showToast)toast('高さ補正を適用しました')}
+function hav(a,b){const R=6371000,rad=Math.PI/180,dlat=(b.lat-a.lat)*rad,dlng=(b.lng-a.lng)*rad,s=Math.sin(dlat/2)**2+Math.cos(a.lat*rad)*Math.cos(b.lat*rad)*Math.sin(dlng/2)**2;return 2*R*Math.asin(Math.sqrt(s))}function interpolateRoute(points,step=18){const out=[];for(let i=0;i<points.length-1;i++){const a=points[i],b=points[i+1],d=hav(a,b),n=Math.max(1,Math.ceil(d/step));for(let j=0;j<n;j++){const t=j/n;out.push({lat:a.lat+(b.lat-a.lat)*t,lng:a.lng+(b.lng-a.lng)*t})}}out.push(points[points.length-1]);return out}
+function sunDirectionCartesian(point,date){const p=sunPosition(date,point.lat,point.lng);if(p.elevation<=0)return null;const az=Cesium.Math.toRadians(p.azimuth),el=Cesium.Math.toRadians(p.elevation),east=Math.sin(az)*Math.cos(el),north=Math.cos(az)*Math.cos(el),up=Math.sin(el),origin=Cesium.Cartesian3.fromDegrees(point.lng,point.lat,1.7+state.heightOffset),enu=Cesium.Transforms.eastNorthUpToFixedFrame(origin),dir=Cesium.Matrix4.multiplyByPointAsVector(enu,new Cesium.Cartesian3(east,north,up),new Cesium.Cartesian3());return Cesium.Cartesian3.normalize(dir,dir)}async function isShaded(point){const dir=sunDirectionCartesian(point,state.date);if(!dir)return true;const origin=Cesium.Cartesian3.fromDegrees(point.lng,point.lat,1.7+state.heightOffset),ray=new Cesium.Ray(origin,dir);try{let hit;if(viewer.scene.pickFromRayMostDetailed)hit=await viewer.scene.pickFromRayMostDetailed(ray,state.routeEntities);else if(viewer.scene.pickFromRay)hit=viewer.scene.pickFromRay(ray,state.routeEntities);return !!(hit&&hit.position&&Cesium.Cartesian3.distance(origin,hit.position)>1)}catch(e){return false}}
+async function analyzeRoute(route,idx){const raw=route.coordinates.map(c=>({lng:c[0],lat:c[1]})),step=Math.max(5,Number($('sampleStep').value)||18),maxSamples=Math.max(50,Number($('maxSamples').value)||260),samples=interpolateRoute(raw,step).slice(0,maxSamples);let shaded=0;const flags=[];for(let i=0;i<samples.length;i++){const sh=await isShaded(samples[i]);flags.push(sh);if(sh)shaded++;if(i%25===0)await new Promise(r=>setTimeout(r,0))}return{idx,raw,samples,flags,shadeRatio:samples.length?shaded/samples.length:0,distance:route.distance||0,duration:route.duration||0}}
+function clearRoutes(){state.routeEntities.forEach(e=>viewer.entities.remove(e));state.routeEntities=[];$('results').innerHTML=''}function drawAnalyzed(routes){clearRoutes();const minDist=Math.min(...routes.map(r=>r.distance)),minDur=Math.min(...routes.map(r=>r.duration)),mode=$('routeMode').value;routes.forEach(r=>{const detour=(r.distance-minDist)/Math.max(minDist,1),delay=(r.duration-minDur)/Math.max(minDur,1);r.score=mode==='shade'?r.shadeRatio*.78-detour*.16-delay*.06:mode==='shortest'?r.shadeRatio*.25-detour*.55-delay*.20:r.shadeRatio*.60-detour*.28-delay*.12});routes.sort((a,b)=>b.score-a.score);state.lastRoutes=routes;routes.forEach((r,rank)=>{const color=rank===0?Cesium.Color.LIME:Cesium.Color.DEEPSKYBLUE.withAlpha(.7);state.routeEntities.push(viewer.entities.add({polyline:{positions:Cesium.Cartesian3.fromDegreesArray(r.raw.flatMap(p=>[p.lng,p.lat])),width:rank===0?7:4,material:color,clampToGround:$('terrainMode').value==='ion'}}));for(let i=0;i<r.samples.length-1;i+=4){const seg=[r.samples[i],r.samples[Math.min(i+3,r.samples.length-1)]];state.routeEntities.push(viewer.entities.add({polyline:{positions:Cesium.Cartesian3.fromDegreesArray(seg.flatMap(p=>[p.lng,p.lat])),width:rank===0?5:3,material:r.flags[i]?Cesium.Color.fromCssColorString('#0ea5e9').withAlpha(.9):Cesium.Color.fromCssColorString('#ef4444').withAlpha(.75),clampToGround:$('terrainMode').value==='ion'}}))}});viewer.flyTo(state.routeEntities,{duration:1});renderResults(routes)}
+function externalMapUrl(route,kind){const o=state.origin,d=state.destination;if(kind==='osm')return `https://www.openstreetmap.org/directions?engine=fossgis_osrm_foot&route=${o.lat}%2C${o.lng}%3B${d.lat}%2C${d.lng}`;if(kind==='apple')return `https://maps.apple.com/?saddr=${o.lat},${o.lng}&daddr=${d.lat},${d.lng}&dirflg=w`;const p=new URLSearchParams({api:'1',origin:`${o.lat},${o.lng}`,destination:`${d.lat},${d.lng}`,travelmode:$('travelMode').value.includes('cycling')?'bicycling':$('travelMode').value.includes('driving')?'driving':'walking'});return 'https://www.google.com/maps/dir/?'+p.toString()}function renderResults(routes){const el=$('results');el.innerHTML='';routes.forEach((r,i)=>{const div=document.createElement('div');div.className='result';div.innerHTML=`<strong>${i===0?'🥇 おすすめ日陰ルート':'候補ルート '+(i+1)}</strong><div class="score"><span class="pill">日陰率 ${(r.shadeRatio*100).toFixed(0)}%</span><span class="pill">距離 ${(r.distance/1000).toFixed(2)}km</span><span class="pill">時間 ${Math.round(r.duration/60)}分</span><span class="pill">Score ${r.score.toFixed(2)}</span></div><div class="buttonRow"><button data-kind="google">Google Maps</button><button data-kind="apple">Apple Maps</button><button data-kind="osm">OSM</button></div>`;div.querySelectorAll('button').forEach(btn=>btn.onclick=()=>window.open(externalMapUrl(r,btn.dataset.kind),'_blank'));el.appendChild(div)})}
+function parsePoint(s){s=s.trim();const m=s.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);if(m)return{lat:+m[1],lng:+m[2]};return null}async function geocodeOrPoint(text){const p=parsePoint(text);if(p)return p;const base=$('workerUrl').value.replace(/\/$/,'');const res=await fetch(base+'/geocode',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text})});if(!res.ok)throw new Error(await res.text());return await res.json()}async function searchShadeRoute(){try{const base=$('workerUrl').value.replace(/\/$/,'');if(!base)throw new Error('Worker URLを設定してください');state.date=dateFromInputs();viewer.clock.currentTime=Cesium.JulianDate.fromDate(state.date);clearRoutes();$('results').innerHTML='<p class="hint">出発地・目的地を解決中...</p>';state.origin=await geocodeOrPoint($('originInput').value);state.destination=await geocodeOrPoint($('destinationInput').value);updateSunReadout();$('results').innerHTML='<p class="hint">OpenRouteServiceで候補ルート取得中...</p>';const res=await fetch(base+'/routes',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({origin:state.origin,destination:state.destination,profile:$('travelMode').value,alternatives:true})});if(!res.ok)throw new Error(await res.text());const data=await res.json();const routes=(data.routes||[]).filter(r=>r.coordinates?.length).slice(0,3);if(!routes.length)throw new Error('ルートが見つかりません');const analyzed=[];for(let i=0;i<routes.length;i++){$('results').innerHTML=`<p class="hint">日陰判定中 ${i+1}/${routes.length}...</p>`;analyzed.push(await analyzeRoute(routes[i],i))}drawAnalyzed(analyzed);toast('日陰ルート検索が完了しました')}catch(e){console.error(e);$('results').innerHTML='<p class="hint">エラー: '+e.message+'</p>';toast('ルート検索に失敗しました')}}async function health(){try{const base=$('workerUrl').value.replace(/\/$/,'');const r=await fetch(base+'/health');$('healthText').textContent=await r.text()}catch(e){$('healthText').textContent='接続失敗: '+e.message}}
+document.querySelectorAll('[data-area]').forEach(btn=>btn.onclick=()=>{$('cityCodeInput').value=btn.dataset.area;if(btn.dataset.area==='all')$('lodInput').value='lod1';toast('範囲コードを '+btn.dataset.area+' にしました')});$('heightPreset').onchange=()=>{$('heightOffsetInput').value=$('heightPreset').value;applyHeightOffset()};$('applyOffsetBtn').onclick=()=>applyHeightOffset();$('saveCesiumTokenBtn').onclick=saveCesiumToken;$('applyTerrainBtn').onclick=applyTerrain;$('clearTerrainBtn').onclick=clearTerrain;$('saveWorkerBtn').onclick=()=>{localStorage.setItem('SHADE_ORS_WORKER_URL',$('workerUrl').value.trim());toast('Worker URLを保存しました')};$('healthBtn').onclick=health;$('searchBtn').onclick=searchShadeRoute;$('loadPlateauBtn').onclick=loadPlateau;$('loadOrthoBtn').onclick=toggleOrtho;$('togglePanel').onclick=()=>$('panel').classList.toggle('collapsed');$('dateInput').addEventListener('change',()=>setDate(dateFromInputs()));$('timeInput').addEventListener('change',()=>{const v=$('timeInput').value;if(!/^\d{1,2}:\d{2}$/.test(v))return;setDate(dateFromInputs())});$('useHereBtn').onclick=()=>navigator.geolocation.getCurrentPosition(p=>{$('originInput').value=`${p.coords.latitude.toFixed(6)},${p.coords.longitude.toFixed(6)}`;toast('現在地を出発地に設定しました')},e=>toast('現在地を取得できません'));
+setDate(new Date());viewer.camera.setView({destination:Cesium.Cartesian3.fromDegrees(139.753,35.684,5000)});loadPlateau();

@@ -1,25 +1,19 @@
-# ShadeRoute PLATEAU - OpenRouteService + Terrain Fixed版
+# ShadeRoute PLATEAU - Japan Regional Terrain版
 
-修正内容:
+Asset ID `2767062` を最初から入力済みにした版です。
 
-- 時刻入力で分が消える問題を修正
-- `dateFromInputs()` と `setDate()` を安全化
-- 地形適用時に真っ黒になりにくいよう、ライティング/ShadowMapをOFF
-- `CesiumTerrainProvider.fromIonAssetId()` を await して terrainProvider を直接設定
-- 地形適用時にPLATEAU Orthoを自動ON
+## 変更点
 
-## Worker
+- UI表記を `Japan Regional Terrain / ion` に修正
+- Terrain Asset ID 初期値を `2767062` に設定
+- Terrain適用時に `CesiumTerrainProvider.fromIonAssetId(assetId)` を await
+- Terrain適用時にPLATEAU Orthoを自動ON
+- Lighting / ShadowMap はOFF
+- 時刻入力バグ修正済み
+- 建物高さ補正も残しています
 
-既存Workerが動いている場合、Worker側の再デプロイは不要です。新規の場合のみ:
+## 使い方
 
-```powershell
-cd worker
-npm install
-npx.cmd wrangler login
-npx.cmd wrangler secret put ORS_API_KEY
-npx.cmd wrangler deploy
-```
+既存Workerはそのまま使えます。GitHub Pages側は `frontend/` の中身で上書きしてください。
 
-## GitHub Pages
-
-`frontend/` の中身をGitHub Pages側へ上書きしてください。
+Cesium ion Tokenを入力して「Token保存」→「Terrain適用」を押してください。
