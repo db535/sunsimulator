@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ShadeRoute PLATEAU ORS - Route LOD2</title>
+  <title>ShadeRoute PLATEAU ORS - Light 3 Point</title>
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.141/Build/Cesium/Cesium.js"></script>
   <link href="https://cesium.com/downloads/cesiumjs/releases/1.141/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
   <link rel="stylesheet" href="./style.css" />
@@ -67,7 +67,7 @@
         <button id="useHereBtn">現在地を出発地</button>
         <button id="searchBtn" class="primary">日陰ルート検索</button>
       </div>
-      <p class="hint">ルート検索後、ルート周辺判定用に同一区/自治体のLOD2を追加読込してから日陰判定します。</p>
+      <p class="hint">LOD2追加読込なし。中心/左/右の3点多数決で日陰判定します。</p>
     </section>
 
     <section class="card">
@@ -98,9 +98,8 @@
       <div class="buttonRow">
         <button id="loadPlateauBtn">PLATEAU読込</button>
         <button id="loadOrthoBtn">PLATEAU Ortho</button>
-        <button id="clearRouteLod2Btn">ルートLOD2解除</button>
       </div>
-      <p id="plateauStatus" class="hint">通常表示はLOD1推奨。ルート検索時だけ判定用LOD2を追加します。</p>
+      <p id="plateauStatus" class="hint">通常表示はLOD1推奨。LOD2追加読込は行いません。</p>
     </section>
 
     <section class="card">
@@ -144,15 +143,16 @@
       <div class="grid2">
         <label>サンプル間隔(m)<input id="sampleStep" type="number" value="10" min="5" max="80" /></label>
         <label>最大サンプル数<input id="maxSamples" type="number" value="500" min="50" max="1000" /></label>
-        <label>ルートLOD2
-          <select id="routeLod2Mode">
-            <option value="on" selected>検索時に追加読込</option>
-            <option value="off">使わない</option>
+        <label>左右判定幅(m)<input id="sideOffsetMeters" type="number" value="3" min="0" max="8" step="0.5" /></label>
+        <label>判定方式
+          <select id="shadeVoteMode">
+            <option value="majority" selected>3点多数決</option>
+            <option value="any">どれか日陰なら日陰</option>
+            <option value="center">中心のみ</option>
           </select>
         </label>
-        <label>LOD2待機(ms)<input id="lod2WaitMs" type="number" value="1800" min="0" max="6000" step="100" /></label>
       </div>
-      <p id="lod2Status" class="hint">LOD2は自治体単位で読み込みます。まずは13101など区単位で使ってください。</p>
+      <p class="hint">歩道位置ズレ対策として、中心・左・右の3点で判定します。不確実表示はしません。</p>
     </section>
 
     <section class="card">
