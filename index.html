@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ShadeRoute PLATEAU ORS GET Fix</title>
+  <title>ShadeRoute PLATEAU ORS - Route LOD2</title>
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.141/Build/Cesium/Cesium.js"></script>
   <link href="https://cesium.com/downloads/cesiumjs/releases/1.141/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
   <link rel="stylesheet" href="./style.css" />
@@ -67,17 +67,17 @@
         <button id="useHereBtn">現在地を出発地</button>
         <button id="searchBtn" class="primary">日陰ルート検索</button>
       </div>
-      <p class="hint">ORSは安定版GET Directionsで検索します。日陰判定は地形高度+1.7mからのレイ判定です。</p>
+      <p class="hint">ルート検索後、ルート周辺判定用に同一区/自治体のLOD2を追加読込してから日陰判定します。</p>
     </section>
 
     <section class="card">
       <h2>2. PLATEAU建物</h2>
       <div class="miniGrid">
         <label>範囲コード<input id="cityCodeInput" value="13101" placeholder="例: 13101 / 13 / all" /></label>
-        <label>LOD
+        <label>通常表示LOD
           <select id="lodInput">
-            <option value="lod1">LOD1 軽量</option>
-            <option value="maxlod2" selected>最大LOD2</option>
+            <option value="lod1" selected>LOD1 軽量</option>
+            <option value="maxlod2">最大LOD2</option>
             <option value="lod2">LOD2限定</option>
           </select>
         </label>
@@ -98,8 +98,9 @@
       <div class="buttonRow">
         <button id="loadPlateauBtn">PLATEAU読込</button>
         <button id="loadOrthoBtn">PLATEAU Ortho</button>
+        <button id="clearRouteLod2Btn">ルートLOD2解除</button>
       </div>
-      <p id="plateauStatus" class="hint">5桁=市区町村、2桁=都道府県、all=全国。広域はLOD1推奨です。</p>
+      <p id="plateauStatus" class="hint">通常表示はLOD1推奨。ルート検索時だけ判定用LOD2を追加します。</p>
     </section>
 
     <section class="card">
@@ -139,12 +140,19 @@
     </section>
 
     <section class="card">
-      <h2>4. 解析設定</h2>
+      <h2>4. 精度設定</h2>
       <div class="grid2">
-        <label>サンプル間隔(m)<input id="sampleStep" type="number" value="18" min="5" max="80" /></label>
-        <label>最大サンプル数<input id="maxSamples" type="number" value="260" min="50" max="800" /></label>
+        <label>サンプル間隔(m)<input id="sampleStep" type="number" value="10" min="5" max="80" /></label>
+        <label>最大サンプル数<input id="maxSamples" type="number" value="500" min="50" max="1000" /></label>
+        <label>ルートLOD2
+          <select id="routeLod2Mode">
+            <option value="on" selected>検索時に追加読込</option>
+            <option value="off">使わない</option>
+          </select>
+        </label>
+        <label>LOD2待機(ms)<input id="lod2WaitMs" type="number" value="1800" min="0" max="6000" step="100" /></label>
       </div>
-      <p class="hint">数値を小さくすると精度は上がりますが重くなります。</p>
+      <p id="lod2Status" class="hint">LOD2は自治体単位で読み込みます。まずは13101など区単位で使ってください。</p>
     </section>
 
     <section class="card">
