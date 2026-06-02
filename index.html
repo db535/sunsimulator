@@ -3,163 +3,24 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ShadeRoute PLATEAU ORS - Japan Regional Terrain</title>
+  <title>ShadeRoute PLATEAU ORS GET Fix</title>
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.141/Build/Cesium/Cesium.js"></script>
   <link href="https://cesium.com/downloads/cesiumjs/releases/1.141/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
   <div id="cesiumContainer"></div>
-
   <aside class="panel" id="panel">
-    <header class="panel__header">
-      <div>
-        <div class="eyebrow">ShadeRoute × PLATEAU × ORS</div>
-        <h1>日陰優先ルート検索</h1>
-      </div>
-      <button id="togglePanel" class="iconBtn" title="折りたたむ">▾</button>
-    </header>
-
-    <section class="card statusCard">
-      <div class="sunIcon">☀️</div>
-      <div>
-        <div id="clockLabel" class="clockLabel">--</div>
-        <div id="sunLabel" class="subtle">太陽高度 --° / 方位 --°</div>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>1. API接続</h2>
-      <label>Cloudflare Worker URL
-        <input id="workerUrl" placeholder="https://shade-route-ors-worker.xxxxx.workers.dev" />
-      </label>
-      <div class="buttonRow">
-        <button id="saveWorkerBtn">保存</button>
-        <button id="healthBtn">接続テスト</button>
-      </div>
-      <p id="healthText" class="hint">OpenRouteService APIキーはWorkerのSecretに保存します。</p>
-    </section>
-
-    <section class="card grid2">
-      <label>出発地<input id="originInput" placeholder="例: 東京駅 / 35.681236,139.767125" /></label>
-      <label>目的地<input id="destinationInput" placeholder="例: 日比谷公園 / 35.674510,139.758101" /></label>
-      <label>移動手段
-        <select id="travelMode">
-          <option value="foot-walking">徒歩</option>
-          <option value="cycling-regular">自転車</option>
-          <option value="driving-car">車</option>
-          <option value="wheelchair">車椅子</option>
-        </select>
-      </label>
-      <label>優先度
-        <select id="routeMode">
-          <option value="balanced">バランス</option>
-          <option value="shade">日陰優先</option>
-          <option value="shortest">最短優先</option>
-        </select>
-      </label>
-      <label>日付<input id="dateInput" type="date" /></label>
-      <label>時刻<input id="timeInput" type="time" step="60" /></label>
-    </section>
-
-    <section class="card">
-      <div class="buttonRow">
-        <button id="useHereBtn">現在地を出発地</button>
-        <button id="searchBtn" class="primary">日陰ルート検索</button>
-      </div>
-      <p class="hint">ORSで候補ルートを取得し、PLATEAU建物へ太陽方向レイを飛ばして日陰率を推定します。</p>
-    </section>
-
-    <section class="card">
-      <h2>2. PLATEAU建物</h2>
-      <div class="miniGrid">
-        <label>範囲コード<input id="cityCodeInput" value="13101" placeholder="例: 13101 / 13 / all" /></label>
-        <label>LOD
-          <select id="lodInput">
-            <option value="lod1">LOD1 軽量</option>
-            <option value="maxlod2" selected>最大LOD2</option>
-            <option value="lod2">LOD2限定</option>
-          </select>
-        </label>
-        <label>テクスチャ
-          <select id="textureInput">
-            <option value="">自動</option>
-            <option value="texture">texture</option>
-            <option value="notexture">notexture</option>
-          </select>
-        </label>
-        <label>年度<input id="yearInput" value="latest" /></label>
-      </div>
-      <div class="buttonRow">
-        <button data-area="13101">千代田区</button>
-        <button data-area="13">東京都</button>
-        <button data-area="all">全国LOD1</button>
-      </div>
-      <div class="buttonRow">
-        <button id="loadPlateauBtn">PLATEAU読込</button>
-        <button id="loadOrthoBtn">PLATEAU Ortho</button>
-      </div>
-      <p id="plateauStatus" class="hint">5桁=市区町村、2桁=都道府県、all=全国。広域はLOD1推奨です。</p>
-    </section>
-
-    <section class="card">
-      <h2>3. 地形 / 接地補正</h2>
-      <label>Cesium ion Token（Japan Regional Terrain用）
-        <input id="cesiumToken" type="password" placeholder="Cesium ion token" />
-      </label>
-      <div class="miniGrid">
-        <label>Terrain Asset ID<input id="terrainAssetId" value="2767062" /></label>
-        <label>地形モード
-          <select id="terrainMode">
-            <option value="ellipsoid">地形なし</option>
-            <option value="ion" selected>Japan Regional Terrain / ion</option>
-          </select>
-        </label>
-      </div>
-      <div class="miniGrid">
-        <label>建物高さ補正(m)<input id="heightOffsetInput" type="number" value="0" step="1" /></label>
-        <label>補正プリセット
-          <select id="heightPreset">
-            <option value="0">0m</option>
-            <option value="-5">-5m</option>
-            <option value="-10">-10m</option>
-            <option value="-20">-20m</option>
-            <option value="5">+5m</option>
-            <option value="10">+10m</option>
-          </select>
-        </label>
-      </div>
-      <div class="buttonRow">
-        <button id="saveCesiumTokenBtn">Token保存</button>
-        <button id="applyTerrainBtn" class="primary">Terrain適用</button>
-        <button id="clearTerrainBtn">地形OFF</button>
-        <button id="applyOffsetBtn">高さ補正を適用</button>
-      </div>
-      <p id="terrainStatus" class="hint">Asset ID 2767062 を初期値にしています。Terrain適用時はPLATEAU Orthoも自動ONになります。</p>
-    </section>
-
-    <section class="card">
-      <h2>4. 解析設定</h2>
-      <div class="grid2">
-        <label>サンプル間隔(m)<input id="sampleStep" type="number" value="18" min="5" max="80" /></label>
-        <label>最大サンプル数<input id="maxSamples" type="number" value="260" min="50" max="800" /></label>
-      </div>
-      <p class="hint">数値を小さくすると精度は上がりますが重くなります。</p>
-    </section>
-
-    <section class="card">
-      <h2>5. 結果</h2>
-      <div id="results" class="results"></div>
-    </section>
+    <header class="panel__header"><div><div class="eyebrow">ShadeRoute × PLATEAU × ORS</div><h1>日陰優先ルート検索</h1></div><button id="togglePanel" class="iconBtn">▾</button></header>
+    <section class="card statusCard"><div class="sunIcon">☀️</div><div><div id="clockLabel" class="clockLabel">--</div><div id="sunLabel" class="subtle">太陽高度 --° / 方位 --°</div></div></section>
+    <section class="card"><h2>1. API接続</h2><label>Cloudflare Worker URL<input id="workerUrl" placeholder="https://shade-route-ors-worker.xxxxx.workers.dev" /></label><div class="buttonRow"><button id="saveWorkerBtn">保存</button><button id="healthBtn">接続テスト</button></div><p id="healthText" class="hint">OpenRouteService APIキーはWorkerのSecretに保存します。</p></section>
+    <section class="card grid2"><label>出発地<input id="originInput" placeholder="例: 東京駅 / 35.681236,139.767125" /></label><label>目的地<input id="destinationInput" placeholder="例: 日比谷公園 / 35.674510,139.758101" /></label><label>移動手段<select id="travelMode"><option value="foot-walking">徒歩</option><option value="cycling-regular">自転車</option><option value="driving-car">車</option><option value="wheelchair">車椅子</option></select></label><label>優先度<select id="routeMode"><option value="balanced">バランス</option><option value="shade">日陰優先</option><option value="shortest">最短優先</option></select></label><label>日付<input id="dateInput" type="date" /></label><label>時刻<input id="timeInput" type="time" step="60" /></label></section>
+    <section class="card"><div class="buttonRow"><button id="useHereBtn">現在地を出発地</button><button id="searchBtn" class="primary">日陰ルート検索</button></div><p class="hint">ORSは安定版GET Directionsで検索します。日陰判定はアプリ内のレイ判定です。</p></section>
+    <section class="card"><h2>2. PLATEAU建物</h2><div class="miniGrid"><label>範囲コード<input id="cityCodeInput" value="13101" placeholder="例: 13101 / 13 / all" /></label><label>LOD<select id="lodInput"><option value="lod1">LOD1 軽量</option><option value="maxlod2" selected>最大LOD2</option><option value="lod2">LOD2限定</option></select></label><label>テクスチャ<select id="textureInput"><option value="">自動</option><option value="texture">texture</option><option value="notexture">notexture</option></select></label><label>年度<input id="yearInput" value="latest" /></label></div><div class="buttonRow"><button data-area="13101">千代田区</button><button data-area="13">東京都</button><button data-area="all">全国LOD1</button></div><div class="buttonRow"><button id="loadPlateauBtn">PLATEAU読込</button><button id="loadOrthoBtn">PLATEAU Ortho</button></div><p id="plateauStatus" class="hint">5桁=市区町村、2桁=都道府県、all=全国。広域はLOD1推奨です。</p></section>
+    <section class="card"><h2>3. 地形 / 接地補正</h2><label>Cesium ion Token（Japan Regional Terrain用）<input id="cesiumToken" type="password" placeholder="Cesium ion token" /></label><div class="miniGrid"><label>Terrain Asset ID<input id="terrainAssetId" value="2767062" /></label><label>地形モード<select id="terrainMode"><option value="ellipsoid">地形なし</option><option value="ion" selected>Japan Regional Terrain / ion</option></select></label></div><div class="miniGrid"><label>建物高さ補正(m)<input id="heightOffsetInput" type="number" value="0" step="1" /></label><label>補正プリセット<select id="heightPreset"><option value="0">0m</option><option value="-5">-5m</option><option value="-10">-10m</option><option value="-20">-20m</option><option value="5">+5m</option><option value="10">+10m</option></select></label></div><div class="buttonRow"><button id="saveCesiumTokenBtn">Token保存</button><button id="applyTerrainBtn" class="primary">Terrain適用</button><button id="clearTerrainBtn">地形OFF</button><button id="applyOffsetBtn">高さ補正を適用</button></div><p id="terrainStatus" class="hint">Asset ID 2767062 を初期値にしています。Terrain適用時はPLATEAU Orthoも自動ONになります。</p></section>
+    <section class="card"><h2>4. 解析設定</h2><div class="grid2"><label>サンプル間隔(m)<input id="sampleStep" type="number" value="18" min="5" max="80" /></label><label>最大サンプル数<input id="maxSamples" type="number" value="260" min="50" max="800" /></label></div><p class="hint">数値を小さくすると精度は上がりますが重くなります。</p></section>
+    <section class="card"><h2>5. 結果</h2><div id="results" class="results"></div></section>
   </aside>
-
-  <div class="legend">
-    <span><b class="b best"></b>おすすめ</span>
-    <span><b class="b alt"></b>候補</span>
-    <span><b class="b sun"></b>日なた</span>
-    <span><b class="b shade"></b>日陰</span>
-  </div>
-  <div id="toast" class="toast"></div>
-  <script src="./app.js"></script>
-</body>
-</html>
+  <div class="legend"><span><b class="b sun"></b>日なた</span><span><b class="b shade"></b>日陰</span></div>
+  <div id="toast" class="toast"></div><script src="./app.js"></script>
+</body></html>
