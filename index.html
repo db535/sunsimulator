@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ShadeRoute PLATEAU ORS - Auto Terrain</title>
+  <title>ShadeRoute PLATEAU ORS - Cesium Max Precision v1</title>
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.141/Build/Cesium/Cesium.js"></script>
   <link href="https://cesium.com/downloads/cesiumjs/releases/1.141/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
   <link rel="stylesheet" href="./style.css" />
@@ -67,7 +67,7 @@
         <button id="useHereBtn">現在地を出発地</button>
         <button id="searchBtn" class="primary">日陰ルート検索</button>
       </div>
-      <p class="hint">LOD2追加読込なし。中心/左/右の3点多数決で日陰判定します。</p>
+      <p class="hint">Cesium内での高精度版です。タイル読込待ち、地形高度キャッシュ、横5点×高さ3点、境界再判定を使います。</p>
     </section>
 
     <section class="card">
@@ -99,7 +99,7 @@
         <button id="loadPlateauBtn">PLATEAU読込</button>
         <button id="loadOrthoBtn">PLATEAU Ortho</button>
       </div>
-      <p id="plateauStatus" class="hint">通常表示はLOD1推奨。LOD2追加読込は行いません。</p>
+      <p id="plateauStatus" class="hint">通常はLOD1推奨。LOD2は検索が重くなるため検証用です。</p>
     </section>
 
     <section class="card">
@@ -139,20 +139,34 @@
     </section>
 
     <section class="card">
-      <h2>4. 精度設定</h2>
+      <h2>4. Cesium極限精度設定</h2>
       <div class="grid2">
-        <label>サンプル間隔(m)<input id="sampleStep" type="number" value="10" min="5" max="80" /></label>
-        <label>最大サンプル数<input id="maxSamples" type="number" value="500" min="50" max="1000" /></label>
-        <label>左右判定幅(m)<input id="sideOffsetMeters" type="number" value="3" min="0" max="8" step="0.5" /></label>
-        <label>判定方式
-          <select id="shadeVoteMode">
-            <option value="majority" selected>3点多数決</option>
-            <option value="any">どれか日陰なら日陰</option>
-            <option value="center">中心のみ</option>
+        <label>粗判定サンプル間隔(m)<input id="sampleStep" type="number" value="10" min="5" max="80" /></label>
+        <label>最大サンプル数<input id="maxSamples" type="number" value="500" min="50" max="1200" /></label>
+        <label>左右判定幅(m)<input id="sideOffsetMeters" type="number" value="4" min="0" max="10" step="0.5" /></label>
+        <label>横方向点数
+          <select id="lateralMode">
+            <option value="5" selected>5点（-4,-2,0,+2,+4m）</option>
+            <option value="3">3点（左/中心/右）</option>
+            <option value="1">中心のみ</option>
+          </select>
+        </label>
+        <label>高さ判定
+          <select id="heightMode">
+            <option value="3" selected>3高さ（0.2/1.0/1.7m）</option>
+            <option value="1">頭高さのみ（1.7m）</option>
+          </select>
+        </label>
+        <label>日陰判定しきい値(%)<input id="shadeThreshold" type="number" value="45" min="1" max="100" step="1" /></label>
+        <label>タイル待機(ms)<input id="tileWaitMs" type="number" value="1800" min="0" max="6000" step="100" /></label>
+        <label>境界再判定
+          <select id="refineBoundaries">
+            <option value="on" selected>ON（2.5m相当）</option>
+            <option value="off">OFF</option>
           </select>
         </label>
       </div>
-      <p class="hint">歩道位置ズレ対策として、中心・左・右の3点で判定します。不確実表示はしません。</p>
+      <p class="hint">重い場合は「横方向3点」「高さ1点」「最大サンプル数300」へ下げてください。</p>
     </section>
 
     <section class="card">
