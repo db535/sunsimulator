@@ -1,129 +1,174 @@
-const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const ORS_BASE = "https://api.openrouteservice.org";
 
-function corsHeaders(origin, env) {
-  const allow = (env.ALLOWED_ORIGINS || "*").split(",").map(s => s.trim()).filter(Boolean);
-  const ok = allow.includes("*") || allow.includes(origin);
-  return ok ? {
-    "Access-Control-Allow-Origin": allow.includes("*") ? "*" : origin,
+function corsHeaders(extra = {}) {
+  return {
+    "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-    "Access-Control-Allow-Headers": "content-type",
-    "Vary": "Origin"
-  } : {};
+    "Access-Control-Allow-Headers": "Content-Type,Authorization",
+    ...extra,
+  };
 }
-function json(data, status = 200, headers = {}) {
-  return new Response(JSON.stringify(data), { status, headers: { ...JSON_HEADERS, ...headers } });
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: corsHeaders({
+      "Content-Type": "application/json; charset=utf-8",
+    }),
+  });
 }
-async function readJson(request) { try { return await request.json(); } catch { return {}; } }
-function normalizeProfile(profile) {
-  const p = String(profile || "foot-walking");
-  const allowed = new Set(["foot-walking", "cycling-regular", "driving-car", "wheelchair"]);
-  return allowed.has(p) ? p : "foot-walking";
+
+function normalizeLngLatPair(value, name) {
+  if (!value) return null;
+  const parts = String(value).split(",").map((s) => Number(s.trim()));
+  if (parts.length !== 2 || parts.some((n) => !Number.isFinite(n))) {
+    throw new Error(`${name} must be lng,lat. Example: 139.767125,35.681236`);
+  }
+  const [lng, lat] = parts;
+  if (Math.abs(lng) > 180 || Math.abs(lat) > 90) {
+    throw new Error(`${name} is out of range. Expected lng,lat.`);
+  }
+  return `${lng},${lat}`;
 }
-function pointToCoordinate(p) { return [Number(p.lng), Number(p.lat)]; }
 
-export default {
-  async fetch(request, env) {
-    const originHeader = request.headers.get("Origin") || "";
-    const cors = corsHeaders(originHeader, env);
-    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-    const url = new URL(request.url);
+async function proxyOrsRoute(url, env) {
+  const profile = url.searchParams.get("profile") || "foot-walking";
+  const startRaw = url.searchParams.get("start");
+  const endRaw = url.searchParams.get("end");
 
-    if (url.pathname === "/health") {
-      return json({ ok: true, provider: "openrouteservice", hasOrsKey: Boolean(env.ORS_API_KEY), time: new Date().toISOString() }, 200, cors);
-    }
-
-    if (url.pathname === "/geocode" && request.method === "POST") {
-      const body = await readJson(request);
-      const text = String(body.text || body.address || "").trim();
-      if (!text) return json({ error: "text is required" }, 400, cors);
-      const endpoint = new URL(`${ORS_BASE}/geocode/search`);
-      endpoint.searchParams.set("text", text);
-      endpoint.searchParams.set("size", "1");
-      endpoint.searchParams.set("boundary.country", body.country || "JP");
-      endpoint.searchParams.set("api_key", env.ORS_API_KEY);
-      const r = await fetch(endpoint.toString(), { headers: { "Accept": "application/json" } });
-      const data = await r.json();
-      if (!r.ok || !data.features?.length) return json({ error: "geocode failed", details: data }, r.status || 400, cors);
-      const [lng, lat] = data.features[0].geometry.coordinates;
-      return json({ lat, lng, label: data.features[0].properties?.label || text }, 200, cors);
-    }
-
-    if (url.pathname === "/routes" && request.method === "POST") {
-  const body = await readJson(request);
-
-  if (!body.origin || !body.destination) {
-    return json({ error: "origin and destination are required" }, 400, cors);
+  if (!env.ORS_API_KEY) {
+    return json({
+      error: "missing ORS_API_KEY",
+      hint: "Run: npx.cmd wrangler secret put ORS_API_KEY",
+    }, 500);
   }
 
-  const profile = normalizeProfile(body.profile);
-
-  const startLng = Number(body.origin.lng);
-  const startLat = Number(body.origin.lat);
-  const endLng = Number(body.destination.lng);
-  const endLat = Number(body.destination.lat);
-
-  if (
-    !Number.isFinite(startLng) ||
-    !Number.isFinite(startLat) ||
-    !Number.isFinite(endLng) ||
-    !Number.isFinite(endLat)
-  ) {
-    return json({ error: "invalid coordinates" }, 400, cors);
+  let start;
+  let end;
+  try {
+    start = normalizeLngLatPair(startRaw, "start");
+    end = normalizeLngLatPair(endRaw, "end");
+  } catch (e) {
+    return json({ error: e.message }, 400);
   }
 
-  /*
-    安定版:
-    POST /v2/directions/{profile}/geojson ではなく、
-    GET /v2/directions/{profile}?start=lng,lat&end=lng,lat
-    を使う。
-  */
+  if (!start || !end) {
+    return json({
+      error: "missing start or end",
+      example: "/routes?profile=foot-walking&start=139.767125,35.681236&end=139.758101,35.674510",
+    }, 400);
+  }
+
   const endpoint = new URL(`${ORS_BASE}/v2/directions/${profile}`);
-
-  endpoint.searchParams.set("start", `${startLng},${startLat}`);
-  endpoint.searchParams.set("end", `${endLng},${endLat}`);
+  endpoint.searchParams.set("start", start);
+  endpoint.searchParams.set("end", end);
 
   const r = await fetch(endpoint.toString(), {
     method: "GET",
     headers: {
       "Authorization": env.ORS_API_KEY,
-      "Accept": "application/geo+json"
-    }
+      "Accept": "application/geo+json",
+    },
   });
 
-  const data = await r.json();
+  const text = await r.text();
 
-  if (!r.ok) {
-    return json(
-      {
-        error: "openrouteservice routes failed",
-        details: data
-      },
-      r.status,
-      cors
-    );
-  }
-
-  const routes = (data.features || []).map((f, i) => ({
-    index: i,
-    coordinates: f.geometry?.coordinates || [],
-    distance: f.properties?.summary?.distance || 0,
-    duration: f.properties?.summary?.duration || 0,
-    summary: f.properties?.summary || {},
-    bbox: f.bbox || null
-  }));
-
-  return json(
-    {
-      routes,
-      provider: "openrouteservice",
-      mode: "get-basic-geojson"
-    },
-    200,
-    cors
-  );
+  return new Response(text, {
+    status: r.status,
+    headers: corsHeaders({
+      "Content-Type": r.headers.get("Content-Type") || "application/geo+json; charset=utf-8",
+      "Cache-Control": "no-store",
+    }),
+  });
 }
 
-    return json({ error: "not found" }, 404, cors);
+async function proxyGeocode(url, env) {
+  const text = url.searchParams.get("text") || url.searchParams.get("q") || "";
+
+  if (!env.ORS_API_KEY) {
+    return json({
+      error: "missing ORS_API_KEY",
+      hint: "Run: npx.cmd wrangler secret put ORS_API_KEY",
+    }, 500);
   }
+
+  if (!text.trim()) {
+    return json({
+      error: "missing text",
+      example: "/geocode?text=東京駅",
+    }, 400);
+  }
+
+  const endpoint = new URL(`${ORS_BASE}/geocode/search`);
+  endpoint.searchParams.set("text", text.trim());
+  endpoint.searchParams.set("size", url.searchParams.get("size") || "5");
+  endpoint.searchParams.set("boundary.country", url.searchParams.get("country") || "JP");
+
+  const r = await fetch(endpoint.toString(), {
+    method: "GET",
+    headers: {
+      "Authorization": env.ORS_API_KEY,
+      "Accept": "application/json",
+    },
+  });
+
+  const textBody = await r.text();
+  return new Response(textBody, {
+    status: r.status,
+    headers: corsHeaders({
+      "Content-Type": r.headers.get("Content-Type") || "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+    }),
+  });
+}
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: corsHeaders(),
+      });
+    }
+
+    if (url.pathname === "/" || url.pathname === "") {
+      return json({
+        ok: true,
+        service: "ShadeRoute ORS Worker",
+        available: ["/health", "/routes", "/geocode"],
+      });
+    }
+
+    if (url.pathname === "/health") {
+      return json({
+        ok: true,
+        provider: "openrouteservice",
+        hasOrsKey: !!env.ORS_API_KEY,
+        time: new Date().toISOString(),
+        available: ["/health", "/routes", "/geocode"],
+      });
+    }
+
+    if (url.pathname === "/routes") {
+      if (request.method !== "GET") {
+        return json({ error: "method not allowed", method: request.method }, 405);
+      }
+      return proxyOrsRoute(url, env);
+    }
+
+    if (url.pathname === "/geocode") {
+      if (request.method !== "GET") {
+        return json({ error: "method not allowed", method: request.method }, 405);
+      }
+      return proxyGeocode(url, env);
+    }
+
+    return json({
+      error: "not found",
+      path: url.pathname,
+      available: ["/health", "/routes", "/geocode"],
+    }, 404);
+  },
 };
