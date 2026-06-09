@@ -22,7 +22,49 @@ async function analyze(route){clearEntities();const date=dateObj(),samples=sampl
 function updateSun(){const c=coord($('originInput').value)||{lat:35.681236,lng:139.767125},s=solar(dateObj(),c.lat,c.lng);$('clockLabel').textContent='解析日時: '+dateObj().toLocaleString();$('sunLabel').textContent=`太陽高度 ${s.elev.toFixed(1)}° / 方位 ${s.az.toFixed(1)}°`;if(state.viewer)state.viewer.clock.currentTime=Cesium.JulianDate.fromDate(dateObj())}
 function visual(on){state.visualShadow=on;const v=state.viewer;v.clock.currentTime=Cesium.JulianDate.fromDate(dateObj());v.shadows=on;v.scene.globe.enableLighting=on;v.scene.shadowMap.enabled=on;v.scene.shadowMap.darkness=.55;v.scene.shadowMap.softShadows=true;v.scene.shadowMap.size=2048;for(const b of state.buildings)b.shadows=on?Cesium.ShadowMode.ENABLED:Cesium.ShadowMode.DISABLED;sstatus(on?'Cesium見た目影ON':'Cesium見た目影OFF')}
 function ll(c){const g=Cesium.Cartographic.fromCartesian(c);return{lng:deg(g.longitude),lat:deg(g.latitude)}} function toLocal(p,o){return{x:rad(p.lng-o.lng)*R*Math.cos(rad(o.lat)),y:rad(p.lat-o.lat)*R}} function toLL(x,y,o){return{lng:o.lng+deg(x/(R*Math.cos(rad(o.lat)))),lat:o.lat+deg(y/R)}} function rect(x0,y0,x1,y1,o){let a=toLL(x0,y0,o),b=toLL(x1,y0,o),c=toLL(x1,y1,o),d=toLL(x0,y1,o);return Cesium.Cartesian3.fromDegreesArray([a.lng,a.lat,b.lng,b.lat,c.lng,c.lat,d.lng,d.lat])}
-function clearPolys(){for(const e of state.shadowPolys)try{state.viewer.entities.remove(e)}catch(x){}state.shadowPolys=[];sstatus('ポリゴンクリア')} async function genPolys(){if(!state.routePositions)throw Error('先にルート検索してください');clearPolys();visual(true);await new Promise(r=>setTimeout(r,+$('shadowPlusTileWait').value));const route=state.routePositions.map(ll),o={lng:route.reduce((s,p)=>s+p.lng,0)/route.length,lat:route.reduce((s,p)=>s+p.lat,0)/route.length},loc=route.map(p=>toLocal(p,o)),step=+$('shadowPlusStep').value,buf=+$('shadowPlusBuffer').value;let minX=Math.min(...loc.map(p=>p.x))-buf,maxX=Math.max(...loc.map(p=>p.x))+buf,minY=Math.min(...loc.map(p=>p.y))-buf,maxY=Math.max(...loc.map(p=>p.y))+buf,nx=Math.ceil((maxX-minX)/step),ny=Math.ceil((maxY-minY)/step);if(nx*ny>3600){step2=Math.ceil(step*Math.sqrt(nx*ny/3600));nx=Math.ceil((maxX-minX)/step2);ny=Math.ceil((maxY-minY)/step2);sstatus(`格子間隔を${step2}mに自動調整`)}const useStep=(nx*ny>3600)?Math.ceil(step*Math.sqrt(nx*ny/3600)):step,mat=Array.from({length:ny},()=>Array(nx).fill(false)),date=dateObj(),center=toLL((minX+maxX)/2,(minY+maxY)/2,o),sun=solar(date,center.lat,center.lng);let pts=[];for(let iy=0;iy<ny;iy++)for(let ix=0;ix<nx;ix++){let p=toLL(minX+(ix+.5)*useStep,minY+(iy+.5)*useStep,o);pts.push({ix,iy,...p})}for(let i=0;i<pts.length;i++){let p=pts[i],gh=await th(p),org=Cesium.Cartesian3.fromDegrees(p.lng,p.lat,gh+(+$('shadowPlusHeight').value)),hit=state.viewer.scene.pickFromRay(new Cesium.Ray(org,dirSun(org,sun.az,sun.elev)));mat[p.iy][p.ix]=!!(hit&&hit.position&&Cesium.Cartesian3.distance(org,hit.position)>.8);if(i%100===0)sstatus(`レイ判定中 ${i}/${pts.length}`)}let cnt=0,sh=0;for(let iy=0;iy<ny;iy++){let ix=0;while(ix<nx){if(!mat[iy][ix]){ix++;continue}let st=ix;while(ix<nx&&mat[iy][ix]){ix++;sh++}let en=ix;let ent=state.viewer.entities.add({name:'real building shadow polygon',polygon:{hierarchy:rect(minX+st*useStep,minY+iy*useStep,minX+en*useStep,minY+(iy+1)*useStep,o),material:Cesium.Color.BLACK.withAlpha(.42),outline:true,outlineColor:Cesium.Color.BLACK.withAlpha(.65),heightReference:Cesium.HeightReference.CLAMP_TO_GROUND,classificationType:Cesium.ClassificationType.BOTH,zIndex:10000}});state.shadowPolys.push(ent);cnt++}}sstatus(`完了: ${cnt} polygons / ${sh} shaded cells\nCesium見た目影ON + 地面影ポリゴンON`)}
+function clearPolys(){for(const e of state.shadowPolys)try{state.viewer.entities.remove(e)}catch(x){}state.shadowPolys=[];sstatus('ポリゴンクリア')} 
+async function genPolys(){
+  if(!state.routePositions) throw Error('先にルート検索してください');
+  clearPolys(); visual(true);
+  await new Promise(r=>setTimeout(r,+$('shadowPlusTileWait').value));
+  const route=state.routePositions.map(ll);
+  const o={lng:route.reduce((s,p)=>s+p.lng,0)/route.length,lat:route.reduce((s,p)=>s+p.lat,0)/route.length};
+  const loc=route.map(p=>toLocal(p,o));
+  const step=+$('shadowPlusStep').value;
+  const buf=+$('shadowPlusBuffer').value;
+  let minX=Math.min(...loc.map(p=>p.x))-buf,maxX=Math.max(...loc.map(p=>p.x))+buf,minY=Math.min(...loc.map(p=>p.y))-buf,maxY=Math.max(...loc.map(p=>p.y))+buf;
+  let nx=Math.ceil((maxX-minX)/step),ny=Math.ceil((maxY-minY)/step);
+  let useStep=step;
+  if(nx*ny>3600){
+    const step2=Math.ceil(step*Math.sqrt(nx*ny/3600));
+    useStep=step2;
+    nx=Math.ceil((maxX-minX)/useStep);
+    ny=Math.ceil((maxY-minY)/useStep);
+    sstatus(`格子間隔を${useStep}mに自動調整`);
+  }
+  const mat=Array.from({length:ny},()=>Array(nx).fill(false));
+  const date=dateObj(),center=toLL((minX+maxX)/2,(minY+maxY)/2,o),sun=solar(date,center.lat,center.lng);
+  let pts=[];
+  for(let iy=0;iy<ny;iy++)for(let ix=0;ix<nx;ix++){let p=toLL(minX+(ix+.5)*useStep,minY+(iy+.5)*useStep,o);pts.push({ix,iy,...p})}
+  for(let i=0;i<pts.length;i++){
+    let p=pts[i],gh=await th(p),org=Cesium.Cartesian3.fromDegrees(p.lng,p.lat,gh+(+$('shadowPlusHeight').value)),hit=state.viewer.scene.pickFromRay(new Cesium.Ray(org,dirSun(org,sun.az,sun.elev)));
+    mat[p.iy][p.ix]=!!(hit&&hit.position&&Cesium.Cartesian3.distance(org,hit.position)>.8);
+    if(i%100===0)sstatus(`レイ判定中 ${i}/${pts.length}`)
+  }
+  let cnt=0,sh=0;
+  for(let iy=0;iy<ny;iy++){
+    let ix=0;
+    while(ix<nx){
+      if(!mat[iy][ix]){ix++;continue}
+      let st=ix;
+      while(ix<nx&&mat[iy][ix]){ix++;sh++}
+      let en=ix;
+      let ent=state.viewer.entities.add({name:'real building shadow polygon',polygon:{hierarchy:rect(minX+st*useStep,minY+iy*useStep,minX+en*useStep,minY+(iy+1)*useStep,o),material:Cesium.Color.BLACK.withAlpha(.42),outline:true,outlineColor:Cesium.Color.BLACK.withAlpha(.65),heightReference:Cesium.HeightReference.CLAMP_TO_GROUND,classificationType:Cesium.ClassificationType.BOTH,zIndex:10000}});
+      state.shadowPolys.push(ent);cnt++
+    }
+  }
+  sstatus(`完了: ${cnt} polygons / ${sh} shaded cells\nCesium見た目影ON + 地面影ポリゴンON`)
+}
 async function run(){if(state.busy)return;state.busy=true;try{save();status('検索開始');const r=await fetchRoute();state.lastRoute=r;await analyze(r)}catch(e){toast('エラー:'+e.message)}finally{state.busy=false}}
 function pick(){const h=new Cesium.ScreenSpaceEventHandler(state.viewer.scene.canvas);h.setInputAction(c=>{const p=state.viewer.scene.pick(c.position);if(!p?.id?.properties)return;const idx=p.id.properties.sampleIndex?.getValue?.();const s=state.samples[idx];if(!s)return;$('detailText').textContent=JSON.stringify(s,null,2);$('detail').style.display='block'},Cesium.ScreenSpaceEventType.LEFT_CLICK)}
 function events(){$('saveWorkerBtn').onclick=()=>{save();toast('保存')};$('healthBtn').onclick=async()=>{const r=await fetch($('workerUrl').value.replace(/\/$/,'')+'/health');$('healthText').textContent=await r.text()};$('saveCesiumTokenBtn').onclick=()=>{localStorage.setItem('sr.token',$('cesiumToken').value);Cesium.Ion.defaultAccessToken=$('cesiumToken').value;toast('Token保存')};$('applyTerrainBtn').onclick=()=>applyTerrain().catch(e=>toast(e.message));$('clearTerrainBtn').onclick=()=>{state.viewer.terrainProvider=new Cesium.EllipsoidTerrainProvider();toast('地形OFF')};$('plateauPreset').onchange=()=>applyPreset($('plateauPreset').value);$('applyPlateauUrlBtn').onclick=()=>applyPreset('custom');$('loadPlateauBtn').onclick=()=>loadPlateau().catch(e=>toast(e.message));$('clearPlateauBtn').onclick=()=>{clearPlateau();toast('建物クリア')};$('searchBtn').onclick=run;$('recalcBtn').onclick=()=>state.lastRoute?analyze(state.lastRoute):toast('先に検索');['dateInput','timeInput','originInput'].forEach(id=>$(id).oninput=updateSun);$('visualShadowOnBtn').onclick=()=>visual(true);$('visualShadowOffBtn').onclick=()=>visual(false);$('generateShadowPlusBtn').onclick=()=>genPolys().catch(e=>sstatus('生成エラー:'+e.message));$('clearShadowPlusBtn').onclick=clearPolys}
