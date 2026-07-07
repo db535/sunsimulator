@@ -1,0 +1,1 @@
+GoogleMap風UI以前の仕様に戻すための再発行版です。frontend/index.html と frontend/app.js に上書きしてください。
